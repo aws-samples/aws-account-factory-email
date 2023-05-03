@@ -1,0 +1,14 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "SES_DOMAIN_NAME": "example.com",
+    "ACCOUNT_TABLE_NAME": "AWSAccountTable",
+    "REMOVE_BUCKET_ON_DESTROY": true,
+    "REMOVE_TABLE_ON_DESTROY": true,
+    "ADDRESS_FROM": "AWSAdmin@example.com",
+    "ADDRESS_ADMIN": "account-admins@example.com",
+    "API_VERSION": "1.0.0",
+    "MAIL_HEADER_VALUE": "AWS Account Management System",
+    "COUNTER_LENGTH": "3"
+  }
+}

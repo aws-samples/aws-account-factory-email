@@ -1,0 +1,10 @@
+{
+    "OwnerAddress": "jdoe@example.com",
+    "AccountType": "IT",
+    "Tags": {
+        "BusinessUnit": "Blue-Origin",
+        "ApplicationName": "space-cube-z",
+        "Environment": "PRODUCTION"
+    },
+    "SomeOtherKey": "SomeOtherValue_shouldbefilteredout"
+}

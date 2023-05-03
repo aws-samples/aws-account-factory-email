@@ -1,0 +1,119 @@
+{
+    "notificationType": "Received",
+    "mail": {
+        "timestamp": "2021-06-10T10:45:15.677Z",
+        "source": "prvs=7883c8052=jdoe@example.com",
+        "messageId": "r80blv2cngdit1qeg17mkbq21nmajksu7tjvbio1",
+        "destination": [
+            "John@example.com"
+        ],
+        "headersTruncated": false,
+        "headers": [
+            {
+                "name": "X-SES-Spam-Verdict",
+                "value": "PASS"
+            },
+            {
+                "name": "X-SES-Virus-Verdict",
+                "value": "PASS"
+            },
+            {
+                "name": "From",
+                "value": "\"Doe, John\" <jdoe@example.com>"
+            },
+            {
+                "name": "To",
+                "value": "\"John@example.com\" <John@example.com>"
+            },
+            {
+                "name": "Subject",
+                "value": "Test 2"
+            },
+            {
+                "name": "Date",
+                "value": "Thu, 10 Jun 2021 10:45:13 +0000"
+            },
+            {
+                "name": "Message-ID",
+                "value": "<2000952F-D57D-4F34-BEB2-5F7E763B5532@example.com>"
+            },
+            {
+                "name": "Accept-Language",
+                "value": "en-US"
+            },
+            {
+                "name": "Content-Language",
+                "value": "en-US"
+            },
+            {
+                "name": "X-MS-Has-Attach",
+                "value": ""
+            },
+            {
+                "name": "X-MS-TNEF-Correlator",
+                "value": ""
+            },
+            {
+                "name": "x-ms-exchange-messagesentrepresentingtype",
+                "value": "1"
+            },
+            {
+                "name": "x-ms-exchange-transport-fromentityheader",
+                "value": "Hosted"
+            },
+            {
+                "name": "Content-Type",
+                "value": "multipart/alternative; boundary=\"_000_2000952FD57D4F34BEB25F7E763B5532amazoncom_\""
+            },
+            {
+                "name": "MIME-Version",
+                "value": "1.0"
+            },
+            {
+                "name": "X-Processed-By",
+                "value": "AWS Account Email Service"
+            }
+        ],
+        "commonHeaders": {
+            "returnPath": "prvs=7883c8052=jdoe@example.com",
+            "from": [
+                "\"Doe, John\" <jdoe@example.com>"
+            ],
+            "date": "Thu, 10 Jun 2021 10:45:13 +0000",
+            "to": [
+                "\"John@example.com\" <John@example.com>"
+            ],
+            "messageId": "<2000952F-D57D-4F34-BEB2-5F7E763B5532@example.com>",
+            "subject": "Test 2"
+        }
+    },
+    "receipt": {
+        "timestamp": "2021-06-10T10:45:15.677Z",
+        "processingTimeMillis": 1413,
+        "recipients": [
+            "John@example.com"
+        ],
+        "spamVerdict": {
+            "status": "PASS"
+        },
+        "virusVerdict": {
+            "status": "PASS"
+        },
+        "spfVerdict": {
+            "status": "PASS"
+        },
+        "dkimVerdict": {
+            "status": "PASS"
+        },
+        "dmarcVerdict": {
+            "status": "PASS"
+        },
+        "action": {
+            "type": "S3",
+            "topicArn": "arn:aws:sns:us-east-1:------------:EmailReceivedTopic",
+            "bucketName": "awsmailfwdstack-mailbucketf",
+            "objectKeyPrefix": "mail/",
+            "objectKey": "mail/r80blv2cngdit1qeg17mkbq21nmajksu7tjvbio1"
+        }
+    }
+}

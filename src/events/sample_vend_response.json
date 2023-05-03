@@ -1,0 +1,9 @@
+{
+    "statusCode": 200,
+    "body": {
+        "AccountName": "sample-vended-account-name-1",
+        "AccountEmail": "sample-vended-account-name-1@example.com",
+        "AccountType": "sample-account-type",
+        "EmailVerification": "pending|verified|failed"
+    }
+}

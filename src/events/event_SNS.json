@@ -1,0 +1,22 @@
+{
+    "Records": [
+        {
+            "EventSource": "aws:sns",
+            "EventVersion": "1.0",
+            "EventSubscriptionArn": "arn:aws:sns:us-east-1:{account_id}:EmailReceivedTopic:27379c85-a3da-4ef7-99cc-7854a90ba29e",
+            "Sns": {
+                "Type": "Notification",
+                "MessageId": "bce09621-1806-52aa-a166-cf1af77b4bed",
+                "TopicArn": "arn:aws:sns:us-east-1:{account_id}:EmailReceivedTopic",
+                "Subject": "Amazon SES Email Receipt Notification",
+                "Message": "JSON body text will be encoded in this field, see event_SNS_message.json for example",
+                "Timestamp": "2021-06-10T10:45:17.101Z",
+                "SignatureVersion": "1",
+                "Signature": "CB6sEOt2RC2dEUxx0VgC/c86w35EGv03yFxMWbzIhmOKpJQW4o9dtdz37/Y3tHbS5AxY3Tu3pmw8D5RGAxIxn/y9M5QF/bJFLPQjZFBN74od4Oof+Vbc3YSLPDi0gLMcQHekUJ3z05h+EvaDA==",
+                "SigningCertUrl": "https://sns.us-east-1.amazonaws.com/SimpleNotificationService-010a507c1833636cd94bdb98bd93083a.pem",
+                "UnsubscribeUrl": "https://sns.us-east-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:us-east-1:{account_id}:EmailReceivedTopic:27379c85-a3da-4ef7-99cc",
+                "MessageAttributes": {}
+            }
+        }
+    ]
+}
