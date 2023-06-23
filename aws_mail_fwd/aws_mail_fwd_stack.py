@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: MIT-0
 from constructs import Construct
 from aws_cdk import (
+    Stack,
     RemovalPolicy,
     Duration,
     CfnOutput,
     Fn,
+    BundlingOptions,
+    custom_resources,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
-    Stack,
     aws_lambda,
     aws_s3 as s3,
     aws_sns as sns,
@@ -16,8 +18,6 @@ from aws_cdk import (
     aws_kms as kms,
     aws_ses as ses,
     aws_ses_actions as ses_actions,
-    custom_resources as custom_resource,
-    BundlingOptions,
     aws_logs,
 )
 from cdk_nag import NagSuppressions
@@ -275,7 +275,7 @@ class AwsMailFwdStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 resources=[
-                    Fn.sub("arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*")
+                    Fn.sub("arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*")
                 ],
                 actions=["ses:SendRawEmail"],
             )
@@ -342,7 +342,7 @@ class AwsMailFwdStack(Stack):
         )
 
         # Custom AWS Resource to mark the RuleSet as active.
-        custom_ses_rule_set_activate = custom_resource.AwsCustomResource(
+        custom_ses_rule_set_activate = custom_resources.AwsCustomResource(
             self,
             "SesReceiptRuleActivate",
             install_latest_aws_sdk=True,
@@ -350,12 +350,12 @@ class AwsMailFwdStack(Stack):
                 "service": "SES",
                 "action": "setActiveReceiptRuleSet",
                 "parameters": {"RuleSetName": f"{rule_set.receipt_rule_set_name}"},
-                "physical_resource_id": custom_resource.PhysicalResourceId.of("id"),
+                "physical_resource_id": custom_resources.PhysicalResourceId.of("id"),
             },
             on_delete={
                 "service": "SES",
                 "action": "setActiveReceiptRuleSet",
-                "physical_resource_id": custom_resource.PhysicalResourceId.of("id"),
+                "physical_resource_id": custom_resources.PhysicalResourceId.of("id"),
             },
             role=custom_resource_role,
         )
@@ -438,7 +438,7 @@ class AwsMailFwdStack(Stack):
                 {
                     "id": "AwsSolutions-IAM5",
                     "reason": "The role must be allowed to send email to all identities",
-                    "appliesTo": ["Resource::arn:aws:ses:<AWS::Region>:<AWS::AccountId>:identity/*"],
+                    "appliesTo": ["Resource::arn:<AWS::Partition>:ses:<AWS::Region>:<AWS::AccountId>:identity/*"],
                 }
             ],
             True
