@@ -11,7 +11,6 @@ from aws_cdk import (
     Stack,
     aws_lambda,
     aws_s3 as s3,
-    # aws_s3_notifications as s3_notify,
     aws_sns as sns,
     aws_lambda_event_sources as lambda_events,
     aws_kms as kms,
@@ -19,8 +18,11 @@ from aws_cdk import (
     aws_ses_actions as ses_actions,
     custom_resources as custom_resource,
     BundlingOptions,
+    aws_logs,
 )
+from cdk_nag import NagSuppressions
 
+ACCOUNT_TABLE_GSI_NAME = "AccountName-Enum-Index"
 
 class AwsMailFwdStack(Stack):
     """SES Mail Forwarding Stack"""
@@ -29,27 +31,30 @@ class AwsMailFwdStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # Create a kms key for storing emails
-        self.mail_key = kms.Key(
+        mail_key = kms.Key(
             self, "KmsKey", enable_key_rotation=True, alias="alias/email-processing"
         )
-        self.sns_key = kms.Key(
+        sns_key = kms.Key(
             self, "KmsKeySns", enable_key_rotation=True, alias="alias/sns-mail-receipt"
         )
-        self.mail_key.grant_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
-        self.sns_key.grant_encrypt_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
+        mail_key.grant_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
+        sns_key.grant_encrypt_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
         # Allow SES to decrypt messages as per requirement
         # https://docs.aws.amazon.com/ses/latest/dg/receiving-email-permissions.html
 
         # Create a bucket to store emails
         destroy_bucket = self.node.try_get_context("REMOVE_BUCKET_ON_DESTROY")
-        self.mail_bucket = s3.Bucket(
+        mail_bucket = s3.Bucket(
             self,
             "MailBucket",
             versioned=True,
             encryption=s3.BucketEncryption.KMS,
-            encryption_key=self.mail_key,
+            encryption_key=mail_key,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
+            # For production use, set up server access logs:
+            # server_access_logs_bucket=central_access_log_bucket,
+            # server_access_logs_prefix='logs',
             removal_policy=RemovalPolicy.DESTROY
             if destroy_bucket
             else RemovalPolicy.RETAIN,
@@ -64,10 +69,10 @@ class AwsMailFwdStack(Stack):
             ],
         )
 
-        self.mail_bucket.grant_read_write(iam.ServicePrincipal("ses.amazonaws.com"))
+        mail_bucket.grant_read_write(iam.ServicePrincipal("ses.amazonaws.com"))
 
         # create dynamo table
-        self.account_table = dynamodb.Table(
+        account_table = dynamodb.Table(
             self,
             "AccountTable",
             partition_key=dynamodb.Attribute(
@@ -79,39 +84,48 @@ class AwsMailFwdStack(Stack):
             point_in_time_recovery=True,
         )
         if self.node.try_get_context("REMOVE_TABLE_ON_DESTROY"):
-            self.account_table.apply_removal_policy(RemovalPolicy.DESTROY)
+            account_table.apply_removal_policy(RemovalPolicy.DESTROY)
 
         # Add a global secondary index
-        self.account_table.add_global_secondary_index(
-            partition_key=dynamodb.Attribute(
-                name="AccountId", type=dynamodb.AttributeType.STRING
-            ),
-            index_name="AccountId-Index",
-            projection_type=dynamodb.ProjectionType.ALL,
-        )
-
-        # Add a global secondary index
-        self.account_table.add_global_secondary_index(
+        account_table.add_global_secondary_index(
             partition_key=dynamodb.Attribute(
                 name="AccountName", type=dynamodb.AttributeType.STRING
             ),
             sort_key=dynamodb.Attribute(
                 name="Enum", type=dynamodb.AttributeType.STRING
             ),
-            index_name="AccountName-Enum-Index",
+            index_name=ACCOUNT_TABLE_GSI_NAME,
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        # Create Vend Email Lambda Log Groups
+        vend_email_log_group = aws_logs.LogGroup(
+            self,
+            "VendEmailLogGroup",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=aws_logs.RetentionDays.ONE_MONTH,
+        )
+
+        # Create Vend Email Lambda IAM Role
+        vend_email_role = iam.Role(
+            self,
+            "VendEmailFunctionRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            description="AwsMailFwd Vend Email Lambda Function role",
+        )
+        vend_email_log_group.grant_write(vend_email_role)
+
         # Create lambda function for vending emails
-        self.vend_email_function = aws_lambda.Function(
+        vend_email_function = aws_lambda.Function(
             self,
             "VendEmailFunction",
-            runtime=aws_lambda.Runtime.PYTHON_3_9,
+            runtime=aws_lambda.Runtime.PYTHON_3_10,
+            runtime_management_mode=aws_lambda.RuntimeManagementMode.AUTO,
             handler="app.lambda_handler",
             code=aws_lambda.Code.from_asset(
                 "src/vendEmail",
                 bundling=BundlingOptions(
-                    image=aws_lambda.Runtime.PYTHON_3_9.bundling_image,
+                    image=aws_lambda.Runtime.PYTHON_3_10.bundling_image,
                     command=[
                         "bash",
                         "-c",
@@ -121,83 +135,156 @@ class AwsMailFwdStack(Stack):
             ),
             description="Function to vend AWS account names and email addresses",
             architecture=aws_lambda.Architecture.ARM_64,
+            role=vend_email_role,
         )
+        
+
+        # Create SES Mail Fwd Function Lambda Log Groups
+        ses_fwd_function_log_group = aws_logs.LogGroup(
+            self,
+            "SesMailForwardLogGroup",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=aws_logs.RetentionDays.ONE_MONTH,
+        )
+        ses_fwd_function_role = iam.Role(
+            self,
+            "SesMailForwardLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            description="AwsMailFwd SES Mail Forwarding Lambda Function role",
+        )
+        ses_fwd_function_log_group.grant_write(ses_fwd_function_role)
 
         # Create lambda function for forwarding emails
-        self.ses_mail_fwd_function = aws_lambda.Function(
+        ses_fwd_function = aws_lambda.Function(
             self,
             "SesMailForwardFunction",
-            runtime=aws_lambda.Runtime.PYTHON_3_9,
+            runtime=aws_lambda.Runtime.PYTHON_3_10,
+            runtime_management_mode=aws_lambda.RuntimeManagementMode.AUTO,
             handler="app.lambda_handler",
             code=aws_lambda.Code.from_asset("src/fwdEmail"),
             description="Function to forward email to the proper AWS account owner",
             architecture=aws_lambda.Architecture.ARM_64,
+            role=ses_fwd_function_role,
         )
 
         # Setup Lambda to receive events from an SNS topic
-        self.sns_topic = sns.Topic(
-            self, "SNSEmailReceivedTopic", topic_name="EmailReceivedTopic", master_key=self.sns_key
+        sns_topic = sns.Topic(
+            self, "SNSEmailReceivedTopic", topic_name="EmailReceivedTopic", master_key=sns_key
         )
-        self.ses_mail_fwd_function.add_event_source(
-            lambda_events.SnsEventSource(self.sns_topic)
+        ses_fwd_function.add_event_source(
+            lambda_events.SnsEventSource(sns_topic)
         )
-        self.sns_topic.grant_publish(iam.ServicePrincipal("ses.amazonaws.com"))
-
+        sns_topic.grant_publish(iam.ServicePrincipal("ses.amazonaws.com"))
+        sns_topic.add_to_resource_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "SNS:Publish"
+                ],
+                effect=iam.Effect.DENY,
+                resources=[sns_topic.topic_arn],
+                conditions={
+                    "Bool": {
+                        "aws:SecureTransport": "false"
+                    }
+                },
+                principals=[iam.ArnPrincipal("*")]
+            )
+        )
         # The following was commented out in favor of using SNS for invoking Lambda
         # # create s3 notification for lambda function
-        # notification = s3_notify.LambdaDestination(self.ses_mail_fwd_function)
+        # notification = s3_notify.LambdaDestination(ses_mail_fwd_function)
 
         # # assign notification for the s3 event type (ex: OBJECT_CREATED)
-        # self.mail_bucket.add_event_notification(s3.EventType.OBJECT_CREATED, notification)
+        # mail_bucket.add_event_notification(s3.EventType.OBJECT_CREATED, notification)
 
         # Set up environment variables for our functions
-        self.ses_mail_fwd_function.add_environment(
+        ses_fwd_function.add_environment(
             "SES_DOMAIN_NAME", self.node.try_get_context("SES_DOMAIN_NAME")
         )
-        self.ses_mail_fwd_function.add_environment(
+        ses_fwd_function.add_environment(
             "ADDRESS_FROM", self.node.try_get_context("ADDRESS_FROM")
         )
-        self.ses_mail_fwd_function.add_environment(
+        ses_fwd_function.add_environment(
             "ADDRESS_ADMIN", self.node.try_get_context("ADDRESS_ADMIN")
         )
-        self.ses_mail_fwd_function.add_environment(
-            "TABLE_NAME", self.account_table.table_name
+        ses_fwd_function.add_environment(
+            "TABLE_NAME", account_table.table_name
         )
-        self.vend_email_function.add_environment(
+        vend_email_function.add_environment(
             "SES_DOMAIN_NAME", self.node.try_get_context("SES_DOMAIN_NAME")
         )
-        self.vend_email_function.add_environment(
-            "TABLE_NAME", self.account_table.table_name
+        vend_email_function.add_environment(
+            "TABLE_NAME", account_table.table_name
         )
-        self.vend_email_function.add_environment(
+        vend_email_function.add_environment(
             "API_VERSION", self.node.try_get_context("API_VERSION")
         )
-        self.vend_email_function.add_environment(
+        vend_email_function.add_environment(
             "COUNTER_LENGTH", self.node.try_get_context("COUNTER_LENGTH")
         )
 
         # Grant permission to Lambda to write to account table and bucket
-        self.account_table.grant_read_data(self.ses_mail_fwd_function)
-        self.account_table.grant_read_write_data(self.vend_email_function)
-        self.mail_bucket.grant_read(self.ses_mail_fwd_function)
-        self.mail_key.grant_decrypt(self.ses_mail_fwd_function)
-        self.sns_key.grant_encrypt_decrypt(self.ses_mail_fwd_function)
+        ses_fwd_function_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:GetRecords",
+                    "dynamodb:GetShardIterator",
+                    "dynamodb:Query",
+                    "dynamodb:GetItem",
+                    "dynamodb:Scan",
+                    "dynamodb:ConditionCheckItem",
+                    "dynamodb:DescribeTable"
+                ],
+                effect=iam.Effect.ALLOW,
+                resources=[
+                    account_table.table_arn,
+                    account_table.table_arn + "/index/" + ACCOUNT_TABLE_GSI_NAME   
+                ]
+            )
+        )
+        vend_email_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:GetRecords",
+                    "dynamodb:GetShardIterator",
+                    "dynamodb:Query",
+                    "dynamodb:GetItem",
+                    "dynamodb:Scan",
+                    "dynamodb:ConditionCheckItem",
+                    "dynamodb:BatchWriteItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:DescribeTable"
+                ],
+                effect=iam.Effect.ALLOW,
+                resources=[
+                    account_table.table_arn,
+                    account_table.table_arn + "/index/" + ACCOUNT_TABLE_GSI_NAME   
+                ]
+            )
+        )
+        mail_bucket.grant_read(ses_fwd_function_role)
+        mail_key.grant_decrypt(ses_fwd_function_role)
+        sns_key.grant_encrypt_decrypt(ses_fwd_function_role)
 
         # Grant permissions to Lambda to perform SES actions
-        self.ses_mail_fwd_function.role.add_to_policy(
+        ses_fwd_function_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 resources=[
                     Fn.sub("arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*")
-                    # Wildcard: Identities unknown prior to policy deployment
                 ],
                 actions=["ses:SendRawEmail"],
             )
         )
-        self.vend_email_function.role.add_to_policy(
+
+        vend_email_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
-                resources=["*"], # Wildcard: Identities unknown prior to policy deployment
+                resources=["*"],
                 actions=[
                     "ses:GetIdentityVerificationAttributes",
                     "ses:VerifyEmailIdentity",
@@ -205,8 +292,8 @@ class AwsMailFwdStack(Stack):
             )
         )
 
-        # Set up SES Ruleset
-        self.rule_set = ses.ReceiptRuleSet(
+        # Set up SES RuleSet
+        rule_set = ses.ReceiptRuleSet(
             self,
             "SESRuleSet",
             rules=[
@@ -221,24 +308,48 @@ class AwsMailFwdStack(Stack):
                             value=self.node.try_get_context("MAIL_HEADER_VALUE"),
                         ),
                         ses_actions.S3(
-                            bucket=self.mail_bucket,
+                            bucket=mail_bucket,
                             object_key_prefix="mail/",
-                            # kms_key=self.mail_key,  # DO NOT specify the key here, this would pre-encrypt messages and require a special decryption routine in Lambda. The objects ARE being encrypted with the default KMS key assigned the bucket
-                            topic=self.sns_topic,
+                            # kms_key=mail_key,  # DO NOT specify the key here, this would pre-encrypt messages and require a special decryption routine in Lambda. The objects ARE being encrypted with the default KMS key assigned the bucket
+                            topic=sns_topic,
                         ),
                     ],
                 )
             ],
         )
 
+        # Create a role for the custom resource which will mark the RuleSet active
+        custom_resource_role = iam.Role(
+            self,
+            "SesReceiptRuleActivateRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            description="AwsMailFwd SES Mail Forwarding Rule Activator Function Role",
+            inline_policies={
+                "GrantAttachRights":
+                iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            actions=[
+                                "ses:SetActiveReceiptRuleSet",
+                                "ses:DescribeReceiptRuleSet",
+                                "ses:CreateReceiptRuleSet",
+                            ],
+                            resources=["*"],
+                        )
+                    ]
+                )
+            }
+        )
+
         # Custom AWS Resource to mark the RuleSet as active.
-        self.custom_ses_rule_set_activate = custom_resource.AwsCustomResource(
+        custom_ses_rule_set_activate = custom_resource.AwsCustomResource(
             self,
             "SesReceiptRuleActivate",
+            install_latest_aws_sdk=True,
             on_create={
                 "service": "SES",
                 "action": "setActiveReceiptRuleSet",
-                "parameters": {"RuleSetName": f"{self.rule_set.receipt_rule_set_name}"},
+                "parameters": {"RuleSetName": f"{rule_set.receipt_rule_set_name}"},
                 "physical_resource_id": custom_resource.PhysicalResourceId.of("id"),
             },
             on_delete={
@@ -246,30 +357,123 @@ class AwsMailFwdStack(Stack):
                 "action": "setActiveReceiptRuleSet",
                 "physical_resource_id": custom_resource.PhysicalResourceId.of("id"),
             },
-            policy=custom_resource.AwsCustomResourcePolicy.from_statements(
-                statements=[
-                    iam.PolicyStatement(
-                        actions=[
-                            "ses:SetActiveReceiptRuleSet",
-                            "ses:DescribeReceiptRuleSet",
-                            "ses:CreateReceiptRuleSet",
-                        ],
-                        resources=["*"], # Wildcard, resource ARNs do not exist prior to deployment of this policy
-                    )
-                ]
-            ),
+            role=custom_resource_role,
         )
-
         # Set some CFN stack outputs
         CfnOutput(
             self,
             "AccountTableName",
-            value=self.account_table.table_name,
+            value=account_table.table_name,
             description="DynamoDB table where account information will be stored",
         )
         CfnOutput(
             self,
             "MailBucketArn",
-            value=self.mail_bucket.bucket_arn,
+            value=mail_bucket.bucket_arn,
             description="ARN of S3 bucket where mail will be stored",
+        )
+
+        # --------------------------------------------------------------------
+        # CDK NAG Suppressions
+        # --------------------------------------------------------------------
+        NagSuppressions.add_resource_suppressions(
+            mail_bucket,
+            [
+                {
+                    "id": "AwsSolutions-S1",
+                    "reason": "POC Deployment. For production use, follow best practices and enable bucket server access logs to a central S3 bucket."
+                }
+            ]
+        )
+        NagSuppressions.add_resource_suppressions(
+            vend_email_function,
+            [
+                {
+                    "id": "AwsSolutions-L1",
+                    "reason": "Currently Python 3.10 is the latest supported release."
+                }
+            ]
+        )
+        NagSuppressions.add_resource_suppressions(
+            ses_fwd_function,
+            [
+                {
+                    "id": "AwsSolutions-L1",
+                    "reason": "Currently Python 3.10 is the latest supported release."
+                }
+            ]
+        )
+        NagSuppressions.add_resource_suppressions(
+            ses_fwd_function_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "appliesTo": [
+                        "Action::s3:GetObject*",
+                        "Action::s3:GetBucket*",
+                        "Action::s3:List*"
+                    ],
+                    "reason": "Wildcard present to maintain a concise policy document"
+                }
+            ],
+            True
+        )
+        mail_bucket_cfn_res = self.get_logical_id(mail_bucket.node.default_child)
+        NagSuppressions.add_resource_suppressions(
+            ses_fwd_function_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "appliesTo": [
+                        f"Resource::<{mail_bucket_cfn_res}.Arn>/*",
+                    ],
+                    "reason": "Solution must access any and all objects in the bucket"
+                }
+            ],
+            True
+        )
+        NagSuppressions.add_resource_suppressions(
+            ses_fwd_function_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "The role must be allowed to send email to all identities",
+                    "appliesTo": ["Resource::arn:aws:ses:<AWS::Region>:<AWS::AccountId>:identity/*"],
+                }
+            ],
+            True
+        )
+        NagSuppressions.add_resource_suppressions(
+            ses_fwd_function_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "All the KMS actions are needed for the role to encrypt and decrypt messages",
+                    "appliesTo": [
+                        "Action::kms:GenerateDataKey*",
+                        "Action::kms:ReEncrypt*"
+                    ],
+                }
+            ],
+            True
+        )
+        NagSuppressions.add_resource_suppressions(
+            vend_email_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "appliesTo": ["Resource::*"],
+                    "reason": "The solution must process any identity that could exist"
+                }
+            ],
+            True
+        )
+        NagSuppressions.add_resource_suppressions(
+            custom_resource_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "Only wildcard resources are supported for SES rule sets"
+                }
+            ]
         )
