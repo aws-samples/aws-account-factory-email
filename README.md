@@ -20,6 +20,8 @@ In this solution there are two flows:
 > In the above diagram, this flow begins typically with an automated account vending solution or automation or invoked manually.  In this request, Lambda is invoked with a payload (examples in [src/events](src/events)) containing metadata, the solution uses this information to generate a unique account name and email address, stores it in a database and returns the values to the caller.  These values can then be used to create a new AWS account (typically using AWS Organizations)
 2. Forward email
 > When an AWS account is created using the account email generated from the flow mentioned above, AWS will send various emails to that email address, like account registration confirmation and periodic notifications.  As part of the solution, you configure your AWS account with SES to receive emails for the entire domain.  This solution configures forward rules that allow AWS Lambda to process all incoming emails, check to see if the TO address is in the table and forwards the message on to the account owner's email address instead.  This allows account owners to have multiple accounts associated with one email address.
+3. Read / Update / Delete Email Configuration (not pictured)
+> Because this is an example of one way this functionality could be created, this solution does not yet implement a read, update, or delete flow that could be used to read the configuration, make modifications or remove mappings.  However, an administrator could create more Lambda functions to do this or use the AWS console directly to interact with the Account Table.  A recommended pattern is to implement [Amazon API Gateway](https://aws.amazon.com/api-gateway/) to provide an API for other applications to consume this functionality.
 
 ## Prerequisites
 - Administrative access to an AWS account  
@@ -57,6 +59,7 @@ variables.
 - ADDRESS_ADMIN: This is the email address you wish to use if the solution is unable to find or forward an email to a valid account owner.  Emails will be SENT to this email address.  Typically customers set this to a shared mailbox that the IT team monitors.
 - MAIL_HEADER_VALUE: This is the value of the X-Processed-By header that is added to every email forwarded through this system
 - COUNTER_LENGTH: This is the length of the number appended to account names (including leading zeros). e.g. this-is-my-account-name-001
+- DISABLE_CATCH_ALL: This setting is not present in cdk.json by default. By adding this setting with any value, it will disable the catch-all behavior and the solution will no longer forward messages where the account owner email is not found.  To help prevent a denial of service attack, the catch-all functionality should be disabled.  To enable catch-all, ensure this setting is NOT present in cdk.json.
 
 ## Deployment
 
@@ -139,8 +142,9 @@ Alternatively, you can delete the CloudFormation stack "AwsMailFwdStack" through
  * `cdk diff`        compare deployed stack with current state
  * `cdk docs`        open CDK documentation
 
-
-
+## Improvement Ideas
+- Implement Read/Update/Delete flows for email address configurations
+- Implement a Dead Letter Queue (DLQ) where undeliverable messages can go for archive or reprocessing
 
 ## Security
 

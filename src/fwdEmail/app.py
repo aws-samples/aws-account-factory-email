@@ -9,9 +9,21 @@ import ses, ddb
 
 ADDRESS_FROM = os.getenv("ADDRESS_FROM")
 ADDRESS_ADMIN = os.getenv("ADDRESS_ADMIN")
+DISABLE_CATCH_ALL = os.getenv("DISABLE_CATCH_ALL", False)
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logger = logging.getLogger("FWD-EMAIL")
 logging.getLogger().setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
+
+
+def get_recipient(source_mail_to: str, account_owner: str) -> str:
+    """Returns the proper recipient or None"""
+    if source_mail_to == ADDRESS_FROM:
+        # Forward emails for the solution's FROM address to the admin
+        return ADDRESS_ADMIN
+    if DISABLE_CATCH_ALL and not account_owner:
+        # IF catch-all is disabled, do not forward to ADDRESS_ADMIN
+        return None
+    return account_owner if account_owner else ADDRESS_ADMIN
 
 
 def lambda_handler(event, context):
@@ -37,13 +49,14 @@ def lambda_handler(event, context):
                 # Retrieve the file from the S3 bucket.
                 file_dict = ses.get_message_from_s3(mail_bucket, object_path)
 
-                # Determine who to send the email to
-                if mail_to == ADDRESS_FROM:
-                    # Forward emails for the solution's FROM address to the admin
-                    send_to = ADDRESS_ADMIN
-                else:
-                    account_owner = ddb.get_account_owner_address(mail_to)
-                    send_to = account_owner if account_owner else ADDRESS_ADMIN
+                # Get the account owner
+                account_owner = ddb.get_account_owner_address(mail_to)
+
+                # Determine the recipient
+                send_to = get_recipient(mail_to, account_owner)
+                if not send_to:
+                    logger.info(f"Unable to determine the proper recipient for {mail_to}")
+                    return
 
                 # Create the message.
                 message = ses.create_message(ADDRESS_FROM, send_to, file_dict)
