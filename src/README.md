@@ -37,6 +37,7 @@ This function delivers incoming message to the proper recipient.  The process is
 |ADDRESS_FROM | cdk.json context.ADDRESS_FROM
 |ADDRESS_ADMIN | cdk.json context.ADDRESS_ADMIN
 |TABLE_NAME | cdk.json context.ACCOUNT_TABLE_NAME
+|DISABLE_CATCH_ALL | cdk.json context.DISABLE_CATCH_ALL
 
 # /events
 The /events folder contains several sample events that are used to debug or build further functionality in the future.

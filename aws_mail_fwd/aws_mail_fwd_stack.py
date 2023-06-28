@@ -34,8 +34,17 @@ class AwsMailFwdStack(Stack):
         mail_key = kms.Key(
             self, "KmsKey", enable_key_rotation=True, alias="alias/email-processing"
         )
+        # KMS key for SNS
         sns_key = kms.Key(
             self, "KmsKeySns", enable_key_rotation=True, alias="alias/sns-mail-receipt"
+        )
+        # KMS Key for DynamoDb Table
+        ddb_key: kms.Key = kms.Key(
+            self, "KmsDdb", enable_key_rotation=True, alias="alias/acct-factory-email-ddb"
+        )
+        # KMS key for CloudWatch Logs Group
+        logs_key = kms.Key(
+            self, "KmsLogs", enable_key_rotation=True, alias="alias/acct-factory-email-cw-logs"
         )
         mail_key.grant_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
         sns_key.grant_encrypt_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
@@ -79,7 +88,8 @@ class AwsMailFwdStack(Stack):
                 name="AccountEmail", type=dynamodb.AttributeType.STRING
             ),
             table_name=self.node.try_get_context("ACCOUNT_TABLE_NAME"),
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
+            encryption_key=ddb_key,
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             point_in_time_recovery=True,
         )
@@ -104,6 +114,7 @@ class AwsMailFwdStack(Stack):
             "VendEmailLogGroup",
             removal_policy=RemovalPolicy.DESTROY,
             retention=aws_logs.RetentionDays.ONE_MONTH,
+            encryption_key=logs_key,
         )
 
         # Create Vend Email Lambda IAM Role
@@ -114,6 +125,9 @@ class AwsMailFwdStack(Stack):
             description="AwsMailFwd Vend Email Lambda Function role",
         )
         vend_email_log_group.grant_write(vend_email_role)
+        ddb_key.grant_encrypt_decrypt(vend_email_role)
+        logs_key.grant_encrypt_decrypt(vend_email_role)
+        logs_key.grant_encrypt_decrypt(iam.ServicePrincipal("logs.amazonaws.com"))
 
         # Create lambda function for vending emails
         vend_email_function = aws_lambda.Function(
@@ -145,6 +159,7 @@ class AwsMailFwdStack(Stack):
             "SesMailForwardLogGroup",
             removal_policy=RemovalPolicy.DESTROY,
             retention=aws_logs.RetentionDays.ONE_MONTH,
+            encryption_key=logs_key,
         )
         ses_fwd_function_role = iam.Role(
             self,
@@ -210,6 +225,10 @@ class AwsMailFwdStack(Stack):
         ses_fwd_function.add_environment(
             "TABLE_NAME", account_table.table_name
         )
+        disable_catch_all = self.node.try_get_context("DISABLE_CATCH_ALL")
+        if disable_catch_all:
+            ses_fwd_function.add_environment("DISABLE_CATCH_ALL", str(disable_catch_all))
+        
         vend_email_function.add_environment(
             "SES_DOMAIN_NAME", self.node.try_get_context("SES_DOMAIN_NAME")
         )
@@ -269,6 +288,10 @@ class AwsMailFwdStack(Stack):
         mail_bucket.grant_read(ses_fwd_function_role)
         mail_key.grant_decrypt(ses_fwd_function_role)
         sns_key.grant_encrypt_decrypt(ses_fwd_function_role)
+        ddb_key.grant_decrypt(ses_fwd_function_role)
+        ddb_key.grant_encrypt_decrypt(iam.ServicePrincipal("dynamodb.amazonaws.com"))
+        logs_key.grant_encrypt_decrypt(ses_fwd_function_role)
+        logs_key.grant_encrypt_decrypt(iam.ServicePrincipal("logs.amazonaws.com"))
 
         # Grant permissions to Lambda to perform SES actions
         ses_fwd_function_role.add_to_policy(
@@ -449,6 +472,20 @@ class AwsMailFwdStack(Stack):
                 {
                     "id": "AwsSolutions-IAM5",
                     "reason": "All the KMS actions are needed for the role to encrypt and decrypt messages",
+                    "appliesTo": [
+                        "Action::kms:GenerateDataKey*",
+                        "Action::kms:ReEncrypt*"
+                    ],
+                }
+            ],
+            True
+        )
+        NagSuppressions.add_resource_suppressions(
+            vend_email_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "All the KMS actions are needed for the role to encrypt and decrypt DynamoDb items",
                     "appliesTo": [
                         "Action::kms:GenerateDataKey*",
                         "Action::kms:ReEncrypt*"
