@@ -24,6 +24,7 @@ from cdk_nag import NagSuppressions
 
 ACCOUNT_TABLE_GSI_NAME = "AccountName-Enum-Index"
 
+
 class AwsMailFwdStack(Stack):
     """SES Mail Forwarding Stack"""
 
@@ -108,15 +109,6 @@ class AwsMailFwdStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
-        # Create Vend Email Lambda Log Groups
-        vend_email_log_group = aws_logs.LogGroup(
-            self,
-            "VendEmailLogGroup",
-            removal_policy=RemovalPolicy.DESTROY,
-            retention=aws_logs.RetentionDays.ONE_MONTH,
-            encryption_key=logs_key,
-        )
-
         # Create Vend Email Lambda IAM Role
         vend_email_role = iam.Role(
             self,
@@ -124,7 +116,7 @@ class AwsMailFwdStack(Stack):
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             description="AwsMailFwd Vend Email Lambda Function role",
         )
-        vend_email_log_group.grant_write(vend_email_role)
+
         ddb_key.grant_encrypt_decrypt(vend_email_role)
         logs_key.grant_encrypt_decrypt(vend_email_role)
         logs_key.grant_encrypt_decrypt(iam.ServicePrincipal("logs.amazonaws.com"))
@@ -151,23 +143,28 @@ class AwsMailFwdStack(Stack):
             architecture=aws_lambda.Architecture.ARM_64,
             role=vend_email_role,
         )
-        
+        # Manually remove unnecessary "DependsOn" links to remove circular reference issue
+        cfnVendEmailFn = vend_email_function.node.default_child
+        cfnVendEmailFn.add_override("DependsOn", None)
 
-        # Create SES Mail Fwd Function Lambda Log Groups
-        ses_fwd_function_log_group = aws_logs.LogGroup(
+        # Create Vend Email Lambda Log Groups
+        vend_email_log_group = aws_logs.LogGroup(
             self,
-            "SesMailForwardLogGroup",
+            "VendEmailLogGroup",
+            log_group_name=f"/aws/lambda/{vend_email_function.function_name}",
             removal_policy=RemovalPolicy.DESTROY,
             retention=aws_logs.RetentionDays.ONE_MONTH,
             encryption_key=logs_key,
         )
+        vend_email_log_group.grant_write(vend_email_role)
+
+        # Create Mail Fwd Lambda IAM Role
         ses_fwd_function_role = iam.Role(
             self,
             "SesMailForwardLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             description="AwsMailFwd SES Mail Forwarding Lambda Function role",
         )
-        ses_fwd_function_log_group.grant_write(ses_fwd_function_role)
 
         # Create lambda function for forwarding emails
         ses_fwd_function = aws_lambda.Function(
@@ -181,6 +178,20 @@ class AwsMailFwdStack(Stack):
             architecture=aws_lambda.Architecture.ARM_64,
             role=ses_fwd_function_role,
         )
+        # Manually remove unnecessary "DependsOn" links to remove circular reference issue
+        cfnFwdEmailFn = ses_fwd_function.node.default_child
+        cfnFwdEmailFn.add_override("DependsOn", None)
+
+        # Create SES Mail Fwd Function Lambda Log Groups
+        ses_fwd_function_log_group = aws_logs.LogGroup(
+            self,
+            "SesMailForwardLogGroup",
+            log_group_name=f"/aws/lambda/{ses_fwd_function.function_name}",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=aws_logs.RetentionDays.ONE_MONTH,
+            encryption_key=logs_key,
+        )
+        ses_fwd_function_log_group.grant_write(ses_fwd_function_role)
 
         # Setup Lambda to receive events from an SNS topic
         sns_topic = sns.Topic(
