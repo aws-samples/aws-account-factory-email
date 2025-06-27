@@ -1,11 +1,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 import json
-import os, sys, logging
+import os
+import sys
+import logging
 
 file_dir = os.path.dirname(__file__)
 sys.path.append(file_dir)
-import ses, ddb
+import ses
+import ddb
 
 ADDRESS_FROM = os.getenv("ADDRESS_FROM")
 ADDRESS_ADMIN = os.getenv("ADDRESS_ADMIN")
@@ -15,7 +18,7 @@ logger = logging.getLogger("FWD-EMAIL")
 logging.getLogger().setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
 
 
-def get_recipient(source_mail_to: str, account_owner: str) -> str:
+def get_recipient(source_mail_to: str, account_owner: str) -> str | None:
     """Returns the proper recipient or None"""
     if source_mail_to == ADDRESS_FROM:
         # Forward emails for the solution's FROM address to the admin
