@@ -9,6 +9,9 @@ __pycache__
 .DS_Store
 node_modules/
 
+# UV cache
+.uv_cache/
+
 # CDK asset staging directory
 .cdk.staging
 cdk.out

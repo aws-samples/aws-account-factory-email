@@ -23,6 +23,8 @@ from aws_cdk import (
 from cdk_nag import NagSuppressions
 
 ACCOUNT_TABLE_GSI_NAME = "AccountName-Enum-Index"
+SES = "ses.amazonaws.com"
+LAMBDA = "lambda.amazonaws.com"
 
 
 class AwsMailFwdStack(Stack):
@@ -47,8 +49,8 @@ class AwsMailFwdStack(Stack):
         logs_key = kms.Key(
             self, "KmsLogs", enable_key_rotation=True, alias="alias/acct-factory-email-cw-logs"
         )
-        mail_key.grant_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
-        sns_key.grant_encrypt_decrypt(iam.ServicePrincipal("ses.amazonaws.com"))
+        mail_key.grant_decrypt(iam.ServicePrincipal(SES))
+        sns_key.grant_encrypt_decrypt(iam.ServicePrincipal(SES))
         # Allow SES to decrypt messages as per requirement
         # https://docs.aws.amazon.com/ses/latest/dg/receiving-email-permissions.html
 
@@ -59,7 +61,7 @@ class AwsMailFwdStack(Stack):
             "MailBucket",
             versioned=True,
             encryption=s3.BucketEncryption.KMS,
-            encryption_key=mail_key,
+            encryption_key=mail_key, # type: ignore
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
             # For production use, set up server access logs:
@@ -79,7 +81,7 @@ class AwsMailFwdStack(Stack):
             ],
         )
 
-        mail_bucket.grant_read_write(iam.ServicePrincipal("ses.amazonaws.com"))
+        mail_bucket.grant_read_write(iam.ServicePrincipal(SES))
 
         # create dynamo table
         account_table = dynamodb.Table(
@@ -90,9 +92,12 @@ class AwsMailFwdStack(Stack):
             ),
             table_name=self.node.try_get_context("ACCOUNT_TABLE_NAME"),
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
-            encryption_key=ddb_key,
+            encryption_key=ddb_key, # type: ignore
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            point_in_time_recovery=True,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True,
+                recovery_period_in_days=35
+            )
         )
         if self.node.try_get_context("REMOVE_TABLE_ON_DESTROY"):
             account_table.apply_removal_policy(RemovalPolicy.DESTROY)
@@ -113,7 +118,7 @@ class AwsMailFwdStack(Stack):
         vend_email_role = iam.Role(
             self,
             "VendEmailFunctionRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            assumed_by=iam.ServicePrincipal(LAMBDA), # type: ignore
             description="AwsMailFwd Vend Email Lambda Function role",
         )
 
@@ -125,13 +130,13 @@ class AwsMailFwdStack(Stack):
         vend_email_function = aws_lambda.Function(
             self,
             "VendEmailFunction",
-            runtime=aws_lambda.Runtime.PYTHON_3_10,
+            runtime=aws_lambda.Runtime.PYTHON_3_13,
             runtime_management_mode=aws_lambda.RuntimeManagementMode.AUTO,
             handler="app.lambda_handler",
             code=aws_lambda.Code.from_asset(
                 "src/vendEmail",
                 bundling=BundlingOptions(
-                    image=aws_lambda.Runtime.PYTHON_3_10.bundling_image,
+                    image=aws_lambda.Runtime.PYTHON_3_13.bundling_image,
                     command=[
                         "bash",
                         "-c",
@@ -141,11 +146,12 @@ class AwsMailFwdStack(Stack):
             ),
             description="Function to vend AWS account names and email addresses",
             architecture=aws_lambda.Architecture.ARM_64,
-            role=vend_email_role,
+            role=vend_email_role, # type: ignore
         )
         # Manually remove unnecessary "DependsOn" links to remove circular reference issue
-        cfnVendEmailFn = vend_email_function.node.default_child
-        cfnVendEmailFn.add_override("DependsOn", None)
+        # vend_email_function.node.default_child.node.dependencies.clear()
+        cfn_vend_email_fn = vend_email_function.node.default_child
+        cfn_vend_email_fn.add_override("DependsOn", None) # type: ignore
 
         # Create Vend Email Lambda Log Groups
         vend_email_log_group = aws_logs.LogGroup(
@@ -154,7 +160,7 @@ class AwsMailFwdStack(Stack):
             log_group_name=f"/aws/lambda/{vend_email_function.function_name}",
             removal_policy=RemovalPolicy.DESTROY,
             retention=aws_logs.RetentionDays.ONE_MONTH,
-            encryption_key=logs_key,
+            encryption_key=logs_key, # type: ignore
         )
         vend_email_log_group.grant_write(vend_email_role)
 
@@ -162,7 +168,7 @@ class AwsMailFwdStack(Stack):
         ses_fwd_function_role = iam.Role(
             self,
             "SesMailForwardLambdaRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            assumed_by=iam.ServicePrincipal(LAMBDA), # type: ignore
             description="AwsMailFwd SES Mail Forwarding Lambda Function role",
         )
 
@@ -170,17 +176,27 @@ class AwsMailFwdStack(Stack):
         ses_fwd_function = aws_lambda.Function(
             self,
             "SesMailForwardFunction",
-            runtime=aws_lambda.Runtime.PYTHON_3_10,
+            runtime=aws_lambda.Runtime.PYTHON_3_13,
             runtime_management_mode=aws_lambda.RuntimeManagementMode.AUTO,
             handler="app.lambda_handler",
-            code=aws_lambda.Code.from_asset("src/fwdEmail"),
+            code=aws_lambda.Code.from_asset(
+                "src/fwdEmail",
+                bundling=BundlingOptions(
+                    image=aws_lambda.Runtime.PYTHON_3_13.bundling_image,
+                    command=[
+                        "bash",
+                        "-c",
+                        "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output",
+                    ],
+                ),
+            ),
             description="Function to forward email to the proper AWS account owner",
             architecture=aws_lambda.Architecture.ARM_64,
-            role=ses_fwd_function_role,
+            role=ses_fwd_function_role, # type: ignore
         )
         # Manually remove unnecessary "DependsOn" links to remove circular reference issue
-        cfnFwdEmailFn = ses_fwd_function.node.default_child
-        cfnFwdEmailFn.add_override("DependsOn", None)
+        cfn_fwd_email_fn = ses_fwd_function.node.default_child
+        cfn_fwd_email_fn.add_override("DependsOn", None) # type: ignore
 
         # Create SES Mail Fwd Function Lambda Log Groups
         ses_fwd_function_log_group = aws_logs.LogGroup(
@@ -189,18 +205,18 @@ class AwsMailFwdStack(Stack):
             log_group_name=f"/aws/lambda/{ses_fwd_function.function_name}",
             removal_policy=RemovalPolicy.DESTROY,
             retention=aws_logs.RetentionDays.ONE_MONTH,
-            encryption_key=logs_key,
+            encryption_key=logs_key, # type: ignore
         )
         ses_fwd_function_log_group.grant_write(ses_fwd_function_role)
 
         # Setup Lambda to receive events from an SNS topic
         sns_topic = sns.Topic(
-            self, "SNSEmailReceivedTopic", topic_name="EmailReceivedTopic", master_key=sns_key
+            self, "SNSEmailReceivedTopic", topic_name="EmailReceivedTopic", master_key=sns_key # type: ignore
         )
         ses_fwd_function.add_event_source(
-            lambda_events.SnsEventSource(sns_topic)
+            lambda_events.SnsEventSource(sns_topic) # type: ignore
         )
-        sns_topic.grant_publish(iam.ServicePrincipal("ses.amazonaws.com"))
+        sns_topic.grant_publish(iam.ServicePrincipal(SES))
         sns_topic.add_to_resource_policy(
             iam.PolicyStatement(
                 actions=[
@@ -213,7 +229,7 @@ class AwsMailFwdStack(Stack):
                         "aws:SecureTransport": "false"
                     }
                 },
-                principals=[iam.ArnPrincipal("*")]
+                principals=[iam.ArnPrincipal("*")] # type: ignore
             )
         )
         # The following was commented out in favor of using SNS for invoking Lambda
@@ -345,7 +361,7 @@ class AwsMailFwdStack(Stack):
                             bucket=mail_bucket,
                             object_key_prefix="mail/",
                             # kms_key=mail_key,  # DO NOT specify the key here, this would pre-encrypt messages and require a special decryption routine in Lambda. The objects ARE being encrypted with the default KMS key assigned the bucket
-                            topic=sns_topic,
+                            topic=sns_topic, # type: ignore
                         ),
                     ],
                 )
@@ -356,7 +372,7 @@ class AwsMailFwdStack(Stack):
         custom_resource_role = iam.Role(
             self,
             "SesReceiptRuleActivateRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            assumed_by=iam.ServicePrincipal(LAMBDA), # type: ignore
             description="AwsMailFwd SES Mail Forwarding Rule Activator Function Role",
             inline_policies={
                 "GrantAttachRights":
@@ -391,7 +407,7 @@ class AwsMailFwdStack(Stack):
                 "action": "setActiveReceiptRuleSet",
                 "physical_resource_id": custom_resources.PhysicalResourceId.of("id"),
             },
-            role=custom_resource_role,
+            role=custom_resource_role, # type: ignore
         )
         # Set some CFN stack outputs
         CfnOutput(
@@ -420,20 +436,11 @@ class AwsMailFwdStack(Stack):
             ]
         )
         NagSuppressions.add_resource_suppressions(
-            vend_email_function,
+            self.node.find_child("AWS679f53fac002430cb0da5b7982bd2287"),
             [
                 {
                     "id": "AwsSolutions-L1",
-                    "reason": "Currently Python 3.10 is the latest supported release."
-                }
-            ]
-        )
-        NagSuppressions.add_resource_suppressions(
-            ses_fwd_function,
-            [
-                {
-                    "id": "AwsSolutions-L1",
-                    "reason": "Currently Python 3.10 is the latest supported release."
+                    "reason": "Custom resources have Automatic runtime version selection to align with the latest version supported in the target region."
                 }
             ]
         )
@@ -452,7 +459,7 @@ class AwsMailFwdStack(Stack):
             ],
             True
         )
-        mail_bucket_cfn_res = self.get_logical_id(mail_bucket.node.default_child)
+        mail_bucket_cfn_res = self.get_logical_id(mail_bucket.node.default_child) # type: ignore
         NagSuppressions.add_resource_suppressions(
             ses_fwd_function_role,
             [
