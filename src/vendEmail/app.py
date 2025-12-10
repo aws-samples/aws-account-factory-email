@@ -131,6 +131,8 @@ def lambda_handler(event, context):
     except SchemaError as se:
         return utils.failed({"message": str(se)})
     tags = validated_request.get(ddb.TAGS)
+    tags[ddb.ACCOUNT_NAME] = validated_request.get(ddb.ACCOUNT_NAME)
+    tags[ddb.ACCOUNT_EMAIL] = validated_request.get(ddb.ACCOUNT_EMAIL)
     account_type = validated_request.get(ddb.ACCOUNT_TYPE)
     owner_email = validated_request.get(ddb.OWNER_ADDRESS)
 
