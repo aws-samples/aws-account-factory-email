@@ -103,3 +103,31 @@ class test_vend_email(TestCase):
                 description=f"Testing failure of email length for '{test_name}' length={len(test_name)}",
             ):
                 self.assertFalse(app.valid_email_length(test_name))
+
+    def test_get_new_account_data_returns_overrides(self):
+        """Test that get_new_account_data() returns override values when provided"""
+        from unittest.mock import patch
+
+        base_metadata = {"BusinessUnit": "finance", "ApplicationName": "billing", "Environment": "PRODUCTION"}
+        test_cases = [
+            # Both overrides provided - uses both overrides directly
+            ({**base_metadata, "AccountName": "my-custom-account", "AccountEmail": "my-custom-account@example.com"},
+             "my-custom-account", "my-custom-account@example.com"),
+            # Only AccountName override - email derived from name + SES_DOMAIN_NAME
+            ({**base_metadata, "AccountName": "my-custom-account"},
+             "my-custom-account", "my-custom-account@example.com"),
+            # Only AccountEmail override - name auto-generated with counter
+            ({**base_metadata, "AccountEmail": "custom-email@example.com"},
+             "finance-billing-prod-001", "custom-email@example.com"),
+            # No overrides - both auto-generated
+            ({**base_metadata},
+             "finance-billing-prod-001", "finance-billing-prod-001@example.com"),
+        ]
+
+        for metadata, expected_name, expected_email in test_cases:
+            with self.subTest(metadata=metadata):
+                with patch.object(app, 'get_next_number', return_value="001"):
+                    with patch.object(app, 'SES_DOMAIN_NAME', "example.com"):
+                        account_name, account_email = app.get_new_account_data(metadata)
+                        self.assertEqual(account_name, expected_name)
+                        self.assertEqual(account_email, expected_email)
