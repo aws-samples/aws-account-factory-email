@@ -18,5 +18,7 @@ schema==0.7.7
     # via -r requirements.in
 six==1.17.0
     # via python-dateutil
-urllib3==2.5.0
-    # via botocore
+urllib3==2.6.0
+    # via
+    #   -r requirements.in
+    #   botocore
