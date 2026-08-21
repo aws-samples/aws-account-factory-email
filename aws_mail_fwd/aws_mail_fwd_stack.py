@@ -130,13 +130,13 @@ class AwsMailFwdStack(Stack):
         vend_email_function = aws_lambda.Function(
             self,
             "VendEmailFunction",
-            runtime=aws_lambda.Runtime.PYTHON_3_13,
+            runtime=aws_lambda.Runtime.PYTHON_3_14,
             runtime_management_mode=aws_lambda.RuntimeManagementMode.AUTO,
             handler="app.lambda_handler",
             code=aws_lambda.Code.from_asset(
                 "src/vendEmail",
                 bundling=BundlingOptions(
-                    image=aws_lambda.Runtime.PYTHON_3_13.bundling_image,
+                    image=aws_lambda.Runtime.PYTHON_3_14.bundling_image,
                     command=[
                         "bash",
                         "-c",
@@ -176,13 +176,13 @@ class AwsMailFwdStack(Stack):
         ses_fwd_function = aws_lambda.Function(
             self,
             "SesMailForwardFunction",
-            runtime=aws_lambda.Runtime.PYTHON_3_13,
+            runtime=aws_lambda.Runtime.PYTHON_3_14,
             runtime_management_mode=aws_lambda.RuntimeManagementMode.AUTO,
             handler="app.lambda_handler",
             code=aws_lambda.Code.from_asset(
                 "src/fwdEmail",
                 bundling=BundlingOptions(
-                    image=aws_lambda.Runtime.PYTHON_3_13.bundling_image,
+                    image=aws_lambda.Runtime.PYTHON_3_14.bundling_image,
                     command=[
                         "bash",
                         "-c",

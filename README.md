@@ -47,7 +47,7 @@ In this solution there are two flows:
 - You will need to install the following tools in your development environment.
     - AWS CLI. See [Installing, updating and uninstalling the AWS CLI version 2](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html)
     - Set up the AWS CLI with IAM access credentials. See [Configuring the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html)
-    - Python version 3.13 or later. Download the python package executable from [here](https://www.python.org/downloads/)
+    - Python version 3.14 or later. Download the python package executable from [here](https://www.python.org/downloads/)
     - UV for Python package management. For installation instructions see [UV installation guide](https://docs.astral.sh/uv/getting-started/installation/)
     - Node.js version 22.x or later. For installation instructions see [Getting Started with the Nodejs](https://nodejs.org/en/learn/getting-started/how-to-install-nodejs)
     - AWS CDK CLI version 2.1019.2 or later. For installation instructions see [Getting Started with the AWS CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting-started.html#getting-started-install)
@@ -56,7 +56,7 @@ In this solution there are two flows:
 ## Pre-Deployment Configuration
 - At minimum, edit `SES_DOMAIN_NAME`, `ACCOUNT_FROM`, and `ACCOUNT_ADMIN` in `cdk.json`. See the cdk.json section below for more information on each setting
 - Update `aws-cdk-lib==xxxx` in [requirements.in](./requirements.in) to the latest version. Use `npm view aws-cdk-lib` to get the latest version number (look for "latest:" in the output).
-- After updating requirements.in, regenerate requirements.txt by running `uv pip compile requirements.in -o requirements.txt --python-version 3.13`
+- After updating requirements.in, regenerate requirements.txt by running `uv pip compile requirements.in -o requirements.txt --python-version 3.14`
 
 ### cdk.json Settings
 
@@ -86,7 +86,7 @@ infrastructure for the solution.  Follow the steps below to deploy the solution.
 2. Create a virtual environment using UV (assumes you are in the root of this repository):
 
     ```
-    $ uv venv --python 3.13
+    $ uv venv --python 3.14
     ```
 
 3. Activate the virtual environment:
@@ -109,7 +109,7 @@ infrastructure for the solution.  Follow the steps below to deploy the solution.
 
     > **Note**: This project uses UV for dependency management with requirements.in files. To update dependencies:
     > - Edit the appropriate requirements.in file
-    > - Run `uv pip compile requirements.in -o requirements.txt --python-version 3.13` to regenerate requirements.txt
+    > - Run `uv pip compile requirements.in -o requirements.txt --python-version 3.14` to regenerate requirements.txt
     > - Install updated dependencies with `uv pip install -r requirements.txt`
     > - Or use the helper script: `./update-deps.sh` to update all requirements.txt files at once
 
